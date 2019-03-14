@@ -41,7 +41,11 @@ class App extends Component {
       console.log('Token cache detected, rehydrate with cache')
       const cookies = localStorage.getItem('cookies')
       this.setState({ token, cookies, loginStage: 4 }, () => {
-        this._wxInit()
+        // this._wxInit()
+        const init = JSON.parse(localStorage.getItem('init'))
+        this.setState({ ...init }, () => {
+          console.log('User', this.state.User)
+        })
       })
     } else {
       console.log('No token cached')
@@ -91,6 +95,13 @@ class App extends Component {
             User,
             SyncKey,
           })
+          const init = {
+            ContactList,
+            MPSubscribeMsgList,
+            User,
+            SyncKey,
+          }
+          localStorage.setItem('init', JSON.stringify(init))
           this._startStatusNotify()
         }
       })
