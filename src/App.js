@@ -13,11 +13,13 @@ const qrCodeBase = 'https://login.weixin.qq.com/qrcode/'
 class App extends Component {
 
   state = {
+    csrfToken: '',
     loginStage: 0, // 0-null，1-二维码，2-扫描后确认前，3-确认后，4-获得passTick后init前
     uuid: '',
     avatar: '',
     ticket: '',
     scan: '',
+    seq: 0,
     canAction: true,
     loopId: 0,
     // 关键的wxinit参数
@@ -31,6 +33,12 @@ class App extends Component {
     User: {},
   }
 
+  componentWillMount() {
+    const s = document.cookie.indexOf('csrfToken')
+    const csrfToken = document.cookie.substring(s + 10)
+    this.setState({ csrfToken })
+  }
+
   componentDidMount() {
     const deviceId = `e${(Math.random() * 10e15).toFixed(0)}`.substring(0, 16)
     this.setState({ deviceId })
@@ -41,11 +49,11 @@ class App extends Component {
       console.log('Token cache detected, rehydrate with cache')
       const cookies = localStorage.getItem('cookies')
       this.setState({ token, cookies, loginStage: 4 }, () => {
-        // this._wxInit()
-        const init = JSON.parse(localStorage.getItem('init'))
-        this.setState({ ...init }, () => {
-          console.log('User', this.state.User)
-        })
+        this._wxInit()
+        // const init = JSON.parse(localStorage.getItem('init'))
+        // this.setState({ ...init }, () => {
+        //   console.log('User', this.state.User)
+        // })
       })
     } else {
       console.log('No token cached')
@@ -58,11 +66,9 @@ class App extends Component {
   }
 
   _wxInit = () => {
-    const { token, cookies, deviceId } = this.state
+    const { token, cookies, deviceId, csrfToken } = this.state
     token.cookies = cookies
     token.deviceId = deviceId
-    const s = document.cookie.indexOf('csrfToken')
-    const csrfToken = document.cookie.substring(s + 10)
     let url = '/wxinit/'
     fetch(url, {
       body: JSON.stringify(token), // must match 'Content-Type' header
@@ -109,12 +115,10 @@ class App extends Component {
   }
 
   _startStatusNotify = () => {
-    const { token, cookies, deviceId, User } = this.state
+    const { token, cookies, deviceId, User, csrfToken } = this.state
     token.cookies = cookies
     token.deviceId = deviceId
     token.userName = User['UserName']
-    const s = document.cookie.indexOf('csrfToken')
-    const csrfToken = document.cookie.substring(s + 10)
     let url = '/startstatusnotify/'
     fetch(url, {
       body: JSON.stringify(token), // must match 'Content-Type' header
@@ -159,10 +163,19 @@ class App extends Component {
   }
 
   _requestQRCode = () => {
-    let url = '/getuuid/'
-    fetch(url).then(response => {
+    const { csrfToken } = this.state
+    const url = '/getuuid/'
+    fetch(url, {
+      body: '', // must match 'Content-Type' header
+      headers: {
+        'content-type': 'application/json',
+        'x-csrf-token': csrfToken,
+      },
+      method: 'POST', // *GET, POST, PUT, DELETE, etc.
+    }).then(response => {
       // console.log(response)
       response.text().then(serializedResp => {
+        console.log(serializedResp)
         const resp = JSON.parse(serializedResp)
         console.log(resp)
         const b = (String.fromCharCode.apply(null, resp.data.data)).toString()
@@ -181,13 +194,21 @@ class App extends Component {
   }
 
   _waitForScan = () => {
-    const { canAction, uuid, loginStage, loopId } = this.state
+    const { canAction, uuid, loginStage, loopId, csrfToken } = this.state
     if (loginStage !== 1 && loginStage !== 2) return
     if (!canAction) return
     this.setState({ canAction: false })
     const tip = loginStage > 1 ? 0 : 1
-    let url = `/waitforscan/?uuid=${uuid}&tip=${tip}`
-    fetch(url).then(response => {
+    const url = '/waitforscan/'
+    const params = { uuid, tip }
+    fetch(url, {
+      body: JSON.stringify(params), // must match 'Content-Type' header
+      headers: {
+        'content-type': 'application/json',
+        'x-csrf-token': csrfToken,
+      },
+      method: 'POST', // *GET, POST, PUT, DELETE, etc.
+    }).then(response => {
       // console.log(response)
       response.text().then(serializedResp => {
         const resp = JSON.parse(serializedResp)
@@ -196,6 +217,7 @@ class App extends Component {
         console.log(b)
         const code = this._extractRespCode(b)
         console.log('code', code)
+        const { seq } = resp
         switch(code) {
           case 201: {
             // 扫描成功
@@ -209,7 +231,7 @@ class App extends Component {
             console.log('200, login success')
             const { ticket, scan } = this._extractTicketScan(b)
             clearInterval(loopId) // 不用再轮询
-            this.setState({ canAction: true, loginStage: 3, loopId: 0, ticket, scan })
+            this.setState({ canAction: true, loginStage: 3, loopId: 0, ticket, scan, seq })
             this._requestIdentification() // 获取登陆后的公参，用于后面所有接口的访问
             break
           }
@@ -252,9 +274,17 @@ class App extends Component {
 
   _requestIdentification = () => {
     console.log('request identification...')
-    const { uuid, ticket, scan } = this.state
-    let url = `/getpassticket/?uuid=${uuid}&ticket=${ticket}&scan=${scan}`
-    fetch(url).then(response => {
+    const { uuid, ticket, scan, csrfToken } = this.state
+    const url = '/getpassticket/'
+    const params = { uuid, ticket, scan }
+    fetch(url, {
+      body: JSON.stringify(params), // must match 'Content-Type' header
+      headers: {
+        'content-type': 'application/json',
+        'x-csrf-token': csrfToken,
+      },
+      method: 'POST', // *GET, POST, PUT, DELETE, etc.
+    }).then(response => {
       // console.log(response)
       response.text().then(serializedResp => {
         const resp = JSON.parse(serializedResp)
@@ -300,7 +330,7 @@ class App extends Component {
   }
 
   _renderItem = () => {
-    const { loginStage, uuid, avatar, token, cookies, User, ContactList, MPSubscribeMsgList, SyncKey } = this.state
+    const { loginStage, uuid, avatar, token, cookies, User, ContactList, MPSubscribeMsgList, SyncKey, csrfToken, seq } = this.state
     switch(loginStage) {
       case 0: {
         return null
@@ -315,7 +345,7 @@ class App extends Component {
         return <WXProfile token={token} />
       }
       case 4: {
-        return <WxWindow token={token} cookies={cookies} User={User} ContactList={ContactList} MPSubscribeMsgList={MPSubscribeMsgList} SyncKey={SyncKey} />
+        return <WxWindow token={token} cookies={cookies} user={User} contactList={ContactList} subscribeMsgList={MPSubscribeMsgList} syncKey={SyncKey} csrfToken={csrfToken} seq={seq} />
       }
       default: {
         return <div>{'登陆步骤出错！'}</div>
