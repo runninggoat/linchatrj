@@ -55,7 +55,7 @@
 
 最后附一张运行起来之后的截图
 
-![截图](https://github.com/runninggoat/linchatrj/tree/master/readmeimg/screenshot.png)
+![截图](https://github.com/runninggoat/linchatrj/blob/master/readmeimg/screenshot.png)
 
 ==========
 
