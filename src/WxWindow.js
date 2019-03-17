@@ -25,6 +25,7 @@ class WxWindow extends Component {
     syncKey: [],
     syncCheckKey: [],
     friends: {},
+    selectedDialog: '',
   }
 
   componentWillUnmount() {
@@ -37,7 +38,8 @@ class WxWindow extends Component {
     if (Object.keys(user).length < 1 || contactList.length < 1 || subscribeMsgList.length < 1 || syncKey.length < 1) return
     const friends = {}
     contactList.forEach(v => {
-      friends[v.UserName] = { avatar: '', nickName: v.NickName, msgs: [] }
+      // 初始化每一个对话者
+      friends[v.UserName] = { avatar: '', nickName: v.NickName, msgs: [], userName: v.UserName }
     })
     this.setState({ token, csrfToken, cookies, contactList, user, subscribeMsgList, syncKey, syncCheckKey: syncKey, friends, ready: true, seq }, () => {
       this._getAvatar()
@@ -100,9 +102,8 @@ class WxWindow extends Component {
 
   _syncCheck = async () => {
     const { ready, syncing, token, syncCheckKey, csrfToken, cookies, seq } = this.state
-    this.setState({ seq: seq + 1 })
     if (!ready || syncing) return
-    this.setState({ syncing: true })
+    this.setState({ syncing: true, seq: seq + 1 })
     const url = '/synccheck/'
     let synckey = ''
     syncCheckKey.List.forEach(v => {
@@ -149,7 +150,7 @@ class WxWindow extends Component {
   }
 
   _syncMsg = () => {
-    const { ready, token, syncKey, csrfToken, cookies } = this.state
+    const { ready, token, syncKey, csrfToken, cookies, friends } = this.state
     if (!ready) return
     const url = '/wxsyncmsg/'
     const params = {
@@ -173,18 +174,36 @@ class WxWindow extends Component {
         // console.log(resp)
         const respJSON = JSON.parse(resp)
         console.log('_syncMsg', respJSON)
+        // 更新同步消息用的key
         this.setState({ syncCheckKey: respJSON.data.SyncCheckKey, syncKey: respJSON.data.SyncKey })
+        // 检查有没有新的信息，如果有，则加到对话数组中
+        const { data } = respJSON
+        const { AddMsgCount } = data
+        if (AddMsgCount > 0) {
+          for (let i = 0; i < AddMsgCount; i++) {
+            const { ToUserName } = data.AddMsgList[i]
+            if (friends[ToUserName]) {
+              friends[ToUserName].msgs.push(data.AddMsgList[i])
+              this.setState({ friends })
+            }
+          }
+        }
       })
     })
   }
 
+  _updateSelectedDialog = userName => {
+    this.setState({ selectedDialog: userName })
+  }
+
   render() {
-    const { avatar, user, contactList, friends } = this.state
+    const { avatar, contactList, friends, selectedDialog } = this.state
     return (
       <div>
         <Row style={{ height: windowHeight }}>
           <MenuBar avatar={avatar} />
-          <WxSide contactList={contactList} friends={friends}></WxSide>
+          <WxSide contactList={contactList} friends={friends} updateSelectedDialog={this._updateSelectedDialog}></WxSide>
+          <DialogBox friends={friends} selectedDialog={selectedDialog}/>
         </Row>
       </div>
     )
@@ -208,6 +227,7 @@ class MenuBar extends Component {
 
 class WxSide extends Component {
   _renderItem = item => {
+    const {updateSelectedDialog} = this.props
     let { avatar } = item
     if (!avatar) avatar = 'https://res.wx.qq.com/a/wx_fed/webwx/res/static/img/2KriyDK.png'
     return (
@@ -216,7 +236,10 @@ class WxSide extends Component {
           avatar={<img src={avatar} alt='Contact icon' style={{ width: 35, height: 35, borderRadius: 6 }}/>}
           title={<div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: COLORS.white, textAlign: 'left' }} dangerouslySetInnerHTML={{ __html: item.nickName }}></div>}
           description=""
-          onClick={() => console.log(item)}
+          onClick={() => {
+            console.log(item.userName)
+            updateSelectedDialog(item.userName)
+          }}
         />
       </Item>
     )
@@ -247,6 +270,36 @@ class WxSide extends Component {
             />
           </Col>
         </Row>
+      </Col>
+    )
+  }
+}
+
+class DialogBox extends Component {
+  _renderMsgs = dialog => {
+    const msgs = []
+    dialog.msgs.forEach((m, i) => {
+      msgs.push(
+        <Row key={`${m.CreateTime}`}>
+          <Col span={2}>
+            <img src={dialog.avatar} alt='Avatar icon' style={{ width: 35, height: 35, borderRadius: 6 }}/>
+          </Col>
+          <Col span={22}>
+            <p style={{ textAlign: 'left' }}>
+              {m.Content}
+            </p>
+          </Col>
+        </Row>
+      )
+    })
+    return msgs
+  }
+
+  render() {
+    const { friends, selectedDialog } = this.props
+    return (
+      <Col span={18} style={{ backgroundColor: '#f0f2f5', padding: 10, height: '100%', overflowY: 'scroll', overflowX: 'hidden', height: windowHeight - 150 }}>
+        { friends[selectedDialog] ? this._renderMsgs(friends[selectedDialog]) : null }
       </Col>
     )
   }
